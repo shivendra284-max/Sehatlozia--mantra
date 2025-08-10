@@ -1,0 +1,485 @@
+import { useQuery } from "@tanstack/react-query";
+import { StatsCard } from "@/components/cards/stats-card";
+import { NutritionChart } from "@/components/charts/nutrition-chart";
+import { WaterTracker } from "@/components/water/water-tracker";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { format } from "date-fns";
+import { Plus, Play, Camera, Target } from "lucide-react";
+import { useLocation } from "wouter";
+
+interface DashboardData {
+  nutrition: {
+    calories: number;
+    carbs: number;
+    protein: number;
+    fat: number;
+    fiber: number;
+  };
+  nutritionGoals: {
+    calories: number;
+    carbs: number;
+    protein: number;
+    fat: number;
+    fiber: number;
+    water: number;
+  };
+  waterIntake: {
+    total: number;
+  };
+  meditation: {
+    total: number;
+    streak: number;
+  };
+  challenge: {
+    currentDay: number;
+    totalDays: number;
+    tasksCompleted: string[];
+    requiredTasks: string[];
+  };
+  foodLogs: Array<{
+    id: string;
+    food: {
+      name: string;
+      calories: number;
+      carbs: number;
+      protein: number;
+      fat: number;
+    };
+    quantity: number;
+    mealType: string;
+    loggedAt: string;
+  }>;
+}
+
+const Dashboard = () => {
+  const [, navigate] = useLocation();
+  const today = format(new Date(), 'yyyy-MM-dd');
+
+  const { data: dashboardData, isLoading } = useQuery<DashboardData>({
+    queryKey: ['/api/dashboard', today],
+    queryFn: async () => {
+      const [nutritionRes, nutritionGoalsRes, waterRes, meditationTotalRes, meditationStreakRes, challengeRes, foodLogsRes] = await Promise.all([
+        fetch(`/api/nutrition/${today}`),
+        fetch('/api/nutrition-goals'),
+        fetch(`/api/water-intake/${today}`),
+        fetch(`/api/meditation/total/${today}`),
+        fetch('/api/meditation/streak'),
+        fetch(`/api/challenge?date=${today}`),
+        fetch(`/api/food-logs?date=${today}`)
+      ]);
+
+      const nutrition = await nutritionRes.json();
+      const nutritionGoals = await nutritionGoalsRes.json();
+      const water = await waterRes.json();
+      const meditationTotal = await meditationTotalRes.json();
+      const meditationStreak = await meditationStreakRes.json();
+      const challenge = await challengeRes.json();
+      const foodLogs = await foodLogsRes.json();
+
+      return {
+        nutrition,
+        nutritionGoals,
+        waterIntake: water,
+        meditation: {
+          total: meditationTotal.total,
+          streak: meditationStreak.streak
+        },
+        challenge: Array.isArray(challenge) && challenge.length > 0 ? challenge[0] : {
+          currentDay: 1,
+          totalDays: 75,
+          tasksCompleted: [],
+          requiredTasks: ["workout", "diet", "water", "photo"]
+        },
+        foodLogs
+      };
+    }
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-4 lg:p-8">
+        <div className="animate-pulse space-y-8">
+          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {Array(4).fill(0).map((_, i) => (
+              <div key={i} className="h-32 bg-gray-200 rounded-xl"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const data = dashboardData!;
+  const caloriesProgress = (data.nutrition.calories / data.nutritionGoals.calories) * 100;
+  const waterProgress = (data.waterIntake.total / data.nutritionGoals.water) * 100;
+  const meditationProgress = Math.min((data.meditation.total / 20) * 100, 100);
+  const challengeProgress = (data.challenge.currentDay / data.challenge.totalDays) * 100;
+
+  return (
+    <div className="p-4 lg:p-8">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+          <div className="mb-4 lg:mb-0">
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-800">
+              Good morning, <span className="text-primary">Priya</span>!
+            </h2>
+            <p className="text-gray-600 mt-1">Let's track your health journey today</p>
+          </div>
+          <div className="flex space-x-3">
+            <Button 
+              onClick={() => navigate('/food-logging')}
+              className="bg-primary hover:bg-primary/90"
+              data-testid="button-log-food"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Log Food
+            </Button>
+            <Button 
+              onClick={() => navigate('/meditation')}
+              variant="secondary"
+              data-testid="button-start-meditation"
+            >
+              <Play className="w-4 h-4 mr-2" />
+              Meditate
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <StatsCard
+          title="Calories Today"
+          value={Math.round(data.nutrition.calories).toString()}
+          subtitle={`of ${data.nutritionGoals.calories} goal`}
+          progress={caloriesProgress}
+          icon="🔥"
+          color="primary"
+        />
+        <StatsCard
+          title="Water Intake"
+          value={`${(data.waterIntake.total / 250).toFixed(1)}`}
+          subtitle={`of ${data.nutritionGoals.water / 250} glasses`}
+          progress={waterProgress}
+          icon="💧"
+          color="blue"
+        />
+        <StatsCard
+          title="Meditation"
+          value={data.meditation.total.toString()}
+          subtitle="minutes today"
+          progress={meditationProgress}
+          icon="🧘"
+          color="purple"
+        />
+        <StatsCard
+          title="75-Day Challenge"
+          value={data.challenge.currentDay.toString()}
+          subtitle={`of ${data.challenge.totalDays} days`}
+          progress={challengeProgress}
+          icon="🏆"
+          color="accent"
+        />
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left Column */}
+        <div className="lg:col-span-2 space-y-8">
+          {/* Today's Meals */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Today's Meals</CardTitle>
+                <div className="flex space-x-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => navigate('/nutrition-analysis')}
+                    data-testid="button-table-view"
+                  >
+                    <i className="fas fa-table mr-1"></i>Table
+                  </Button>
+                  <Button size="sm" data-testid="button-chart-view">
+                    <i className="fas fa-chart-bar mr-1"></i>Chart
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-6">
+                <NutritionChart 
+                  data={{
+                    carbs: data.nutrition.carbs,
+                    protein: data.nutrition.protein,
+                    fat: data.nutrition.fat
+                  }}
+                />
+              </div>
+
+              <div className="space-y-4">
+                {data.foodLogs.length > 0 ? (
+                  data.foodLogs.slice(0, 3).map((log) => (
+                    <div key={log.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                          <i className="fas fa-utensils text-gray-600"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-gray-800">{log.food.name}</h4>
+                          <div className="flex space-x-4 text-sm text-gray-600 mt-1">
+                            <span>{Math.round(log.food.calories * log.quantity)} cal</span>
+                            <span>{Math.round(log.food.carbs * log.quantity)}g carbs</span>
+                            <span>{Math.round(log.food.protein * log.quantity)}g protein</span>
+                            <span>{Math.round(log.food.fat * log.quantity)}g fat</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {format(new Date(log.loggedAt), 'h:mm a')}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <i className="fas fa-utensils text-4xl mb-4 opacity-20"></i>
+                    <p>No meals logged today</p>
+                  </div>
+                )}
+
+                <Button 
+                  variant="outline" 
+                  className="w-full mt-4 border-dashed"
+                  onClick={() => navigate('/food-logging')}
+                  data-testid="button-add-meal"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add meal or snack
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Nutrition Breakdown Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Nutrition Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left border-b border-gray-200">
+                      <th className="pb-3 text-sm font-medium text-gray-600">Nutrient</th>
+                      <th className="pb-3 text-sm font-medium text-gray-600">Amount</th>
+                      <th className="pb-3 text-sm font-medium text-gray-600">Goal</th>
+                      <th className="pb-3 text-sm font-medium text-gray-600">Progress</th>
+                    </tr>
+                  </thead>
+                  <tbody className="space-y-3">
+                    {[
+                      { name: 'Calories', current: Math.round(data.nutrition.calories), goal: data.nutritionGoals.calories, color: 'bg-primary' },
+                      { name: 'Carbohydrates', current: Math.round(data.nutrition.carbs), goal: Math.round(data.nutritionGoals.carbs), color: 'bg-blue-500', unit: 'g' },
+                      { name: 'Protein', current: Math.round(data.nutrition.protein), goal: Math.round(data.nutritionGoals.protein), color: 'bg-green-500', unit: 'g' },
+                      { name: 'Fat', current: Math.round(data.nutrition.fat), goal: Math.round(data.nutritionGoals.fat), color: 'bg-yellow-500', unit: 'g' },
+                      { name: 'Fiber', current: Math.round(data.nutrition.fiber), goal: Math.round(data.nutritionGoals.fiber), color: 'bg-purple-500', unit: 'g' },
+                    ].map((nutrient) => {
+                      const progress = Math.min((nutrient.current / nutrient.goal) * 100, 100);
+                      return (
+                        <tr key={nutrient.name} className="border-b border-gray-100">
+                          <td className="py-3 text-sm font-medium text-gray-800">{nutrient.name}</td>
+                          <td className="py-3 text-sm text-gray-600">{nutrient.current}{nutrient.unit || ''}</td>
+                          <td className="py-3 text-sm text-gray-600">{nutrient.goal}{nutrient.unit || ''}</td>
+                          <td className="py-3">
+                            <div className="flex items-center space-x-3">
+                              <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                <div className={`h-2 rounded-full nutrition-progress-bar ${nutrient.color}`} style={{ width: `${progress}%` }}></div>
+                              </div>
+                              <span className="text-xs text-gray-500">{Math.round(progress)}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column */}
+        <div className="space-y-8">
+          {/* Water Tracker */}
+          <WaterTracker />
+
+          {/* Meditation Tracker */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Meditation</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center mb-6">
+                <div className="w-24 h-24 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-meditation text-purple-500 text-3xl"></i>
+                </div>
+                <p className="text-2xl font-bold text-gray-800">{data.meditation.total} minutes</p>
+                <p className="text-sm text-gray-600">today</p>
+              </div>
+              
+              <div className="space-y-3 mb-4">
+                <Button 
+                  variant="outline" 
+                  className="w-full border-purple-200 text-purple-600 hover:bg-purple-50"
+                  onClick={() => navigate('/meditation')}
+                  data-testid="button-meditation-5min"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  5 min session
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full border-purple-200 text-purple-600 hover:bg-purple-50"
+                  onClick={() => navigate('/meditation')}
+                  data-testid="button-meditation-10min"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  10 min session
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full border-purple-200 text-purple-600 hover:bg-purple-50"
+                  onClick={() => navigate('/meditation')}
+                  data-testid="button-meditation-15min"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  15 min session
+                </Button>
+              </div>
+              
+              <div className="text-center">
+                <p className="text-xs text-gray-500 mb-2">{data.meditation.streak}-day streak</p>
+                <div className="flex justify-center space-x-1">
+                  {Array(7).fill(0).map((_, index) => (
+                    <div 
+                      key={index} 
+                      className={`w-6 h-6 rounded-full meditation-streak-dot ${
+                        index < data.meditation.streak ? 'bg-purple-500' : 'bg-gray-200'
+                      }`}
+                    ></div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 75-Day Challenge */}
+          <Card>
+            <CardHeader>
+              <CardTitle>75-Day Challenge</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center mb-6">
+                <div className="text-3xl font-bold text-gray-800 mb-1">Day {data.challenge.currentDay}</div>
+                <p className="text-sm text-gray-600">of {data.challenge.totalDays} days</p>
+                <Progress value={challengeProgress} className="mt-4" />
+                <p className="text-xs text-gray-500 mt-2">{Math.round(challengeProgress)}% complete</p>
+              </div>
+              
+              <div className="space-y-3">
+                {data.challenge.requiredTasks.map((task) => {
+                  const isCompleted = data.challenge.tasksCompleted.includes(task);
+                  const taskNames = {
+                    workout: 'Workout',
+                    diet: 'Diet',
+                    water: 'Water Goal',
+                    photo: 'Progress Photo'
+                  };
+                  
+                  return (
+                    <div 
+                      key={task} 
+                      className={`flex items-center justify-between p-3 rounded-lg challenge-task ${
+                        isCompleted ? 'bg-green-50' : 'bg-yellow-50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <i className={`fas ${isCompleted ? 'fa-check-circle text-green-500' : 'fa-clock text-yellow-500'}`}></i>
+                        <span className="text-sm font-medium text-gray-800">{taskNames[task as keyof typeof taskNames]}</span>
+                      </div>
+                      <Badge variant={isCompleted ? "default" : "secondary"} className={isCompleted ? "bg-green-100 text-green-600" : "bg-yellow-100 text-yellow-600"}>
+                        {isCompleted ? 'Completed' : 'Pending'}
+                      </Badge>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              <Button 
+                className="w-full mt-4 bg-accent hover:bg-accent/90"
+                onClick={() => navigate('/challenge')}
+                data-testid="button-update-challenge"
+              >
+                <Camera className="w-4 h-4 mr-2" />
+                Add Progress Photo
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Quick Goals */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Goals</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">Lose 5kg</p>
+                    <p className="text-xs text-gray-600">2.3kg remaining</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="w-16 bg-gray-200 rounded-full h-2">
+                      <div className="bg-primary h-2 rounded-full" style={{ width: '54%' }}></div>
+                    </div>
+                    <span className="text-xs text-gray-500">54%</span>
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">Walk 10k steps</p>
+                    <p className="text-xs text-gray-600">Daily goal</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="w-16 bg-gray-200 rounded-full h-2">
+                      <div className="bg-primary h-2 rounded-full" style={{ width: '78%' }}></div>
+                    </div>
+                    <span className="text-xs text-gray-500">78%</span>
+                  </div>
+                </div>
+                
+                <Button 
+                  variant="outline" 
+                  className="w-full border-dashed"
+                  onClick={() => navigate('/goals')}
+                  data-testid="button-add-goal"
+                >
+                  <Target className="w-4 h-4 mr-2" />
+                  Add New Goal
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
